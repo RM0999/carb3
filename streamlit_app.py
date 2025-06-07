@@ -4,116 +4,117 @@ import requests
 from datetime import datetime
 
 # Constants
-USD_TO_AUD = 1.52  # Fallback exchange rate
+USD_TO_AUD = 1.52  # Static conversion fallback
+SUPPORTED_COINS = ["BTC", "ETH", "XRP", "LTC", "ADA"]
 
-# Streamlit UI Setup
-st.set_page_config(page_title="Live Crypto Arbitrage Scanner", layout="wide")
-st.markdown("<h1 style='text-align: center;'>🔁 Crypto Arbitrage Scanner</h1>", unsafe_allow_html=True)
+# Streamlit UI
+st.set_page_config(page_title="Multi-Coin Arbitrage Scanner", layout="wide")
+st.title("🔁 Multi-Coin Crypto Arbitrage Scanner (Live APIs Only)")
 
-# Sidebar settings
 with st.sidebar:
-    st.title("⚙️ Settings")
-    pair = st.selectbox("Trading Pair", ["BTC/USDT"])
-    min_profit = st.slider("Minimum Profit (%)", 0.5, 10.0, 2.0)
+    st.header("⚙️ Settings")
+    coin = st.selectbox("Select Coin", SUPPORTED_COINS)
+    min_profit = st.slider("Minimum Profit (%)", 0.5, 10.0, 1.0)
     investment = st.number_input("Investment (AUD)", min_value=10, value=1000)
-    refresh_rate = st.slider("Refresh Interval (sec)", 1, 60, 10)
-    selected_exchanges = st.multiselect("Exchanges", [
-        "Binance", "Kraken", "CoinSpot", "IndependentReserve",
-        "Bybit", "Crypto.com", "KuCoin", "OKX", "Bitget"
+    refresh_rate = st.slider("Refresh Interval (sec)", 5, 60, 10)
+    selected_exchanges = st.multiselect("Select Exchanges", [
+        "Binance", "Kraken", "CoinSpot", "IndependentReserve", "Coinbase", "CoinJar", "Crypto.com"
     ], default=["Binance", "Kraken", "CoinSpot", "IndependentReserve"])
 
-# Exchange API fetchers
-def fetch_binance():
+# === API Fetch Functions ===
+def fetch_binance(symbol):
     try:
-        r = requests.get("https://api.binance.com/api/v3/ticker/bookTicker?symbol=BTCUSDT").json()
-        return {'buy': float(r['askPrice']) * USD_TO_AUD, 'sell': float(r['bidPrice']) * USD_TO_AUD, 'fee': 0.001}
-    except: return None
+        sym = f"{symbol}USDT"
+        r = requests.get(f"https://api.binance.com/api/v3/ticker/bookTicker?symbol={sym}").json()
+        return {"buy": float(r['askPrice']) * USD_TO_AUD, "sell": float(r['bidPrice']) * USD_TO_AUD, "fee": 0.001}
+    except:
+        return None
 
-def fetch_kraken():
+def fetch_kraken(symbol):
     try:
-        r = requests.get("https://api.kraken.com/0/public/Ticker?pair=XBTUSD").json()
-        data = r['result']['XXBTZUSD']
-        return {'buy': float(data['a'][0]) * USD_TO_AUD, 'sell': float(data['b'][0]) * USD_TO_AUD, 'fee': 0.0026}
-    except: return None
+        kraken_map = {"BTC": "XBT", "ETH": "ETH", "XRP": "XRP", "LTC": "LTC", "ADA": "ADA"}
+        sym = f"{kraken_map[symbol]}USDT"
+        r = requests.get(f"https://api.kraken.com/0/public/Ticker?pair={sym}").json()
+        result = list(r['result'].values())[0]
+        return {"buy": float(result['a'][0]) * USD_TO_AUD, "sell": float(result['b'][0]) * USD_TO_AUD, "fee": 0.0026}
+    except:
+        return None
 
-def fetch_coinspot():
+def fetch_coinspot(symbol):
     try:
         r = requests.get("https://www.coinspot.com.au/pubapi/v2/latest").json()
-        return {'buy': float(r['prices']['BTC']['ask']), 'sell': float(r['prices']['BTC']['bid']), 'fee': 0.01}
-    except: return None
-
-def fetch_independent_reserve():
-    try:
-        r = requests.get("https://api.independentreserve.com/Public/GetMarketSummary?primaryCurrencyCode=BTC&secondaryCurrencyCode=AUD").json()
-        return {'buy': float(r['CurrentLowestOfferPrice']), 'sell': float(r['CurrentHighestBidPrice']), 'fee': 0.005}
-    except: return None
-
-def fetch_bybit():
-    try:
-        r = requests.get("https://api.bybit.com/v2/public/tickers?symbol=BTCUSDT").json()
-        item = r["result"][0]
-        return {'buy': float(item['ask_price']) * USD_TO_AUD, 'sell': float(item['bid_price']) * USD_TO_AUD, 'fee': 0.001}
-    except: return None
-
-def fetch_crypto_com():
-    try:
-        r = requests.get("https://api.crypto.com/v2/public/get-ticker?instrument_name=BTC_USDT").json()
-        data = r["result"]["data"]
-        return {'buy': float(data['a']) * USD_TO_AUD, 'sell': float(data['b']) * USD_TO_AUD, 'fee': 0.001}
-    except: return None
-
-def fetch_kucoin():
-    try:
-        r = requests.get("https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=BTC-USDT").json()
-        data = r["data"]
-        return {'buy': float(data['askPrice']) * USD_TO_AUD, 'sell': float(data['bidPrice']) * USD_TO_AUD, 'fee': 0.001}
-    except: return None
-
-def fetch_okx():
-    try:
-        r = requests.get("https://www.okx.com/api/v5/market/ticker?instId=BTC-USDT").json()
-        data = r["data"][0]
-        return {'buy': float(data['askPx']) * USD_TO_AUD, 'sell': float(data['bidPx']) * USD_TO_AUD, 'fee': 0.001}
-    except: return None
-
-def fetch_bitget():
-    try:
-        r = requests.get("https://api.bitget.com/api/v2/spot/market/tickers?symbol=BTCUSDT").json()
-        for d in r['data']:
-            if d['symbol'] == 'BTCUSDT':
-                return {'buy': float(d['askPx']) * USD_TO_AUD, 'sell': float(d['bidPx']) * USD_TO_AUD, 'fee': 0.001}
+        coin_data = r['prices'].get(symbol)
+        if coin_data:
+            return {"buy": float(coin_data['ask']), "sell": float(coin_data['bid']), "fee": 0.01}
+    except:
         return None
-    except: return None
 
+def fetch_independent_reserve(symbol):
+    try:
+        symbol_map = {"BTC": "Xbt", "ETH": "Eth", "XRP": "Xrp", "LTC": "Ltc", "ADA": "Ada"}
+        url = f"https://api.independentreserve.com/Public/GetMarketSummary?primaryCurrencyCode={symbol_map[symbol]}&secondaryCurrencyCode=Aud"
+        r = requests.get(url).json()
+        return {"buy": float(r['CurrentLowestOfferPrice']), "sell": float(r['CurrentHighestBidPrice']), "fee": 0.005}
+    except:
+        return None
+
+def fetch_coinbase(symbol):
+    try:
+        r = requests.get(f"https://api.coinbase.com/v2/prices/{symbol}-USD/spot").json()
+        price = float(r['data']['amount']) * USD_TO_AUD
+        return {"buy": price * 1.001, "sell": price * 0.999, "fee": 0.005}
+    except:
+        return None
+
+def fetch_coinjar(symbol):
+    try:
+        r = requests.get("https://data.exchange.coinjar.com/products").json()
+        for p in r:
+            if p["display_name"] == f"{symbol}/AUD":
+                ask = float(p["ask"])
+                bid = float(p["bid"])
+                return {"buy": ask, "sell": bid, "fee": 0.005}
+    except:
+        return None
+
+def fetch_crypto_com(symbol):
+    try:
+        sym = f"{symbol}_USDT"
+        r = requests.get(f"https://api.crypto.com/v2/public/get-ticker?instrument_name={sym}").json()
+        data = r["result"]["data"]
+        return {"buy": float(data["a"]) * USD_TO_AUD, "sell": float(data["b"]) * USD_TO_AUD, "fee": 0.001}
+    except:
+        return None
+
+# Mapping
 api_fetchers = {
     "Binance": fetch_binance,
     "Kraken": fetch_kraken,
     "CoinSpot": fetch_coinspot,
     "IndependentReserve": fetch_independent_reserve,
-    "Bybit": fetch_bybit,
-    "Crypto.com": fetch_crypto_com,
-    "KuCoin": fetch_kucoin,
-    "OKX": fetch_okx,
-    "Bitget": fetch_bitget
+    "Coinbase": fetch_coinbase,
+    "CoinJar": fetch_coinjar,
+    "Crypto.com": fetch_crypto_com
 }
 
-# Fetch market data from selected exchanges
-data = {ex: api_fetchers[ex]() for ex in selected_exchanges}
-valid_data = {ex: val for ex, val in data.items() if val}
+# Fetch and compute
+data = {ex: api_fetchers[ex](coin) for ex in selected_exchanges if api_fetchers[ex](coin)}
+valid_data = {ex: val for ex, val in data.items() if val and val['buy'] and val['sell']}
 
 if valid_data:
     best_buy = min(valid_data.items(), key=lambda x: x[1]['buy'])
     best_sell = max(valid_data.items(), key=lambda x: x[1]['sell'])
-    net_profit_pct = round(((best_sell[1]['sell'] * (1 - best_sell[1]['fee'])) - (best_buy[1]['buy'] * (1 + best_buy[1]['fee']))) / (best_buy[1]['buy'] * (1 + best_buy[1]['fee'])) * 100, 2)
+    spread = best_sell[1]['sell'] - best_buy[1]['buy']
+    net_profit_pct = round((spread - (best_buy[1]['buy'] * best_buy[1]['fee']) - (best_sell[1]['sell'] * best_sell[1]['fee'])) / best_buy[1]['buy'] * 100, 2)
     net_profit_aud = round(investment * (net_profit_pct / 100), 2)
     timestamp = datetime.now().strftime("%H:%M:%S")
 
     if net_profit_pct >= min_profit:
-        st.success(f"🚀 Opportunity Found! {timestamp}")
-        st.write(f"Buy from **{best_buy[0]}** at **AUD ${best_buy[1]['buy']:.2f}** (Fee: {best_buy[1]['fee']*100}%)")
-        st.write(f"Sell on **{best_sell[0]}** at **AUD ${best_sell[1]['sell']:.2f}** (Fee: {best_sell[1]['fee']*100}%)")
-        st.write(f"📈 Net Profit: **{net_profit_pct}%** | **AUD ${net_profit_aud}**")
+        st.success(f"🚀 Arbitrage Opportunity at {timestamp}")
+        st.write(f"💸 Buy on **{best_buy[0]}** at **AUD ${best_buy[1]['buy']:.2f}**")
+        st.write(f"💰 Sell on **{best_sell[0]}** at **AUD ${best_sell[1]['sell']:.2f}**")
+        st.write(f"📈 Spread: AUD ${spread:.2f} | Net Profit: **{net_profit_pct}%** | **AUD ${net_profit_aud}**")
     else:
-        st.warning(f"No arbitrage opportunity above {min_profit}% right now.")
+        st.warning("No positive arbitrage opportunity above your minimum threshold.")
 else:
-    st.error("No valid exchange data available.")
+    st.error("⚠️ No valid pricing data available from selected exchanges.")
